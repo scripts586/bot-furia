@@ -32,10 +32,8 @@ class FuriaBot(commands.Bot):
         super().__init__(command_prefix='!', intents=intents)
 
     async def setup_hook(self):
-        # Registra as views para que os botões não morram ao reiniciar o bot
+        # Isso registra os botões para funcionarem após o bot reiniciar
         self.add_view(ViewCentral())
-        # Para ViewFilaFuria ser persistente em mensagens fixas, 
-        # precisaríamos de IDs fixos, mas o /atualizar_filas gera novos.
         print("✅ Views persistentes da ORG FÚRIA carregadas!")
 
 bot = FuriaBot()
@@ -121,8 +119,6 @@ class ViewCentral(discord.ui.View):
             embed.set_field_at(1, name="Mediadores Online:", value=txt, inline=False)
             await interaction.message.edit(embed=embed)
             await interaction.response.send_message("✅ Você entrou na fila de mediadores!", ephemeral=True)
-        else:
-            await interaction.response.send_message("⚠️ Já está na fila!", ephemeral=True)
 
     @discord.ui.button(label="Cadastrar Pix", style=discord.ButtonStyle.secondary, emoji="💠", custom_id="med_pix")
     async def cadastrar_pix(self, interaction, button):
@@ -167,7 +163,7 @@ class ViewFilaFuria(discord.ui.View):
         if len(fila) >= 2:
             if not fila_mediadores:
                 fila.remove(interaction.user)
-                return await interaction.followup.send("⚠️ Não há MEDIADORES ON! A partida só inicia com mediador na fila.", ephemeral=True)
+                return await interaction.followup.send("⚠️ Não há MEDIADORES ON! Entre na central primeiro.", ephemeral=True)
 
             p1, p2 = fila.pop(0), fila.pop(0)
             med_id = random.choice(fila_mediadores)
@@ -189,13 +185,16 @@ class ViewFilaFuria(discord.ui.View):
 @bot.command(name="sync")
 @commands.has_permissions(administrator=True)
 async def sync(ctx):
-    fmt = await bot.tree.sync()
-    await ctx.send(f"✅ Sincronizado {len(fmt)} comandos!")
+    try:
+        fmt = await bot.tree.sync()
+        await ctx.send(f"✅ {len(fmt)} comandos sincronizados!")
+    except Exception as e:
+        await ctx.send(f"❌ Erro: {e}")
 
 @bot.tree.command(name="win")
 async def win(interaction: discord.Interaction, jogador1: discord.Member, jogador2: discord.Member, valor: str):
-    emb1 = discord.Embed(title="🏆 GANHADOR", description=f"Marque o vencedor: {jogador1.mention} ou {jogador2.mention}", color=0x2ECC71)
-    emb2 = discord.Embed(title="💀 PERDEDOR", description=f"Marque o perdedor: {jogador1.mention} ou {jogador2.mention}", color=0xE74C3C)
+    emb1 = discord.Embed(title="🏆 GANHADOR", description=f"Selecione: {jogador1.mention} ou {jogador2.mention}", color=0x2ECC71)
+    emb2 = discord.Embed(title="💀 PERDEDOR", description=f"Selecione: {jogador1.mention} ou {jogador2.mention}", color=0xE74C3C)
     emb3 = discord.Embed(title="🔒 ENCERRAR APOSTA", description=f"Valor: **R$ {valor}**", color=0x34495E)
     emb3.set_footer(text="ORG FÚRIA | SALAS 10 C")
     await interaction.response.send_message(embeds=[emb1, emb2, emb3], view=ViewWinFuria(jogador1, jogador2, valor))
@@ -203,8 +202,7 @@ async def win(interaction: discord.Interaction, jogador1: discord.Member, jogado
 @bot.tree.command(name="central")
 async def central(interaction: discord.Interaction):
     embed = discord.Embed(title="Mediadores disponíveis", color=0xFFA500)
-    embed.description = "Só interaja com o botão \"Entrar na Fila\", caso esteja disponível para mediar os apostados."
-    embed.add_field(name="Instrução:", value="Use o botão \"Entrar na Fila\" somente ao estar ON!", inline=False)
+    embed.description = "Entre na fila somente se puder mediar agora."
     embed.add_field(name="Mediadores Online:", value="Nenhum mediador online.", inline=False)
     embed.set_footer(text="ORG FÚRIA | SALAS 10 C")
     await interaction.response.send_message(embed=embed, view=ViewCentral())
@@ -224,6 +222,11 @@ async def atualizar_filas(interaction: discord.Interaction):
         embed.add_field(name="👥 Jogadores:", value="Nenhum jogador na fila", inline=False)
         embed.set_footer(text="ORG FÚRIA | SALAS 10 C")
         await interaction.channel.send(embed=embed, view=ViewFilaFuria(v, mod))
+
+@bot.event
+async def on_message(message):
+    if message.author == bot.user: return
+    await bot.process_commands(message)
 
 @bot.event
 async def on_ready():
