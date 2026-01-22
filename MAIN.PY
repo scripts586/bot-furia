@@ -82,6 +82,52 @@ class ViewWinFuria(discord.ui.View):
         await asyncio.sleep(2)
         await interaction.channel.delete()
 
+# --- ADICIONE ESTA CLASSE ACIMA DA VIEW CENTRAL ---
+class ModalPixFuria(discord.ui.Modal, title='💠 CADASTRAR PIX - FÚRIA'):
+    chave = discord.ui.TextInput(label='Sua Chave Pix', placeholder='Ex: CPF, E-mail ou Aleatória', required=True)
+    banco = discord.ui.TextInput(label='Nome do Banco', placeholder='Ex: Nubank, Inter, Itaú', required=True)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        pix_db = carregar_dados('pix.json')
+        pix_db[str(interaction.user.id)] = {"chave": self.chave.value, "banco": self.banco.value}
+        salvar_dados('pix.json', pix_db)
+        await interaction.response.send_message(f"✅ Pix cadastrado com sucesso!", ephemeral=True)
+
+# --- DENTRO DA CLASS VIEWCENTRAL, ADICIONE ESTES BOTÕES ---
+class ViewCentral(discord.ui.View):
+    def __init__(self): super().__init__(timeout=None)
+
+    @discord.ui.button(label="Entrar na Fila", style=discord.ButtonStyle.success, emoji="✅")
+    async def entrar(self, interaction, button):
+        # Verifica se tem Pix antes de deixar entrar na fila
+        pix_db = carregar_dados('pix.json')
+        if str(interaction.user.id) not in pix_db:
+            return await interaction.response.send_message("❌ Você precisa cadastrar seu Pix antes de entrar na fila!", ephemeral=True)
+            
+        if interaction.user.id not in fila_mediadores:
+            fila_mediadores.append(interaction.user.id)
+            embed = interaction.message.embeds[0]
+            txt = "\n".join([f"<@{m}>" for m in fila_mediadores])
+            embed.set_field_at(1, name="Mediadores Online:", value=txt, inline=False)
+            await interaction.message.edit(embed=embed)
+            await interaction.response.send_message("✅ Você entrou na fila de mediadores!", ephemeral=True)
+
+    @discord.ui.button(label="Cadastrar Pix", style=discord.ButtonStyle.secondary, emoji="💠")
+    async def cadastrar_pix(self, interaction, button):
+        # Abre o formulário para o mediador digitar os dados
+        await interaction.response.send_modal(ModalPixFuria())
+
+    @discord.ui.button(label="Sair da Fila", style=discord.ButtonStyle.danger, emoji="❌")
+    async def sair(self, interaction, button):
+        if interaction.user.id in fila_mediadores:
+            fila_mediadores.remove(interaction.user.id)
+            embed = interaction.message.embeds[0]
+            txt = "\n".join([f"<@{m}>" for m in fila_mediadores]) if fila_mediadores else "Nenhum mediador online."
+            embed.set_field_at(1, name="Mediadores Online:", value=txt, inline=False)
+            await interaction.message.edit(embed=embed)
+            await interaction.response.send_message("❌ Você saiu da fila!", ephemeral=True)
+
+
 # --- VIEW: CENTRAL DE MEDIADORES ---
 class ViewCentral(discord.ui.View):
     def __init__(self): super().__init__(timeout=None)
