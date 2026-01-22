@@ -213,6 +213,19 @@ async def blacklist(interaction: discord.Interaction, usuario: discord.Member, m
     salvar_blacklist(bl)
     await interaction.response.send_message(f"🚫 {usuario.mention} foi para a BLACKLIST!\n**Motivo:** {motivo}\n**Expira em:** {data_expira}")
 
+@bot.tree.command(name="removebl", description="Remove um jogador da blacklist")
+@app_commands.describe(usuario="Jogador que será removido")
+@app_commands.checks.has_permissions(administrator=True)
+async def removebl(interaction: discord.Interaction, usuario: discord.Member):
+    bl = carregar_blacklist()
+    user_id = str(usuario.id)
+    if user_id in bl:
+        del bl[user_id]
+        salvar_blacklist(bl)
+        await interaction.response.send_message(f"✅ {usuario.mention} foi removido da blacklist!")
+    else:
+        await interaction.response.send_message(f"❌ {usuario.mention} não está na blacklist.", ephemeral=True)
+
 @bot.tree.command(name="central", description="Painel dos Mediadores")
 async def central(interaction: discord.Interaction):
     embed = discord.Embed(title="🛡️ CENTRAL DE MEDIADORES", color=0x2f3136)
