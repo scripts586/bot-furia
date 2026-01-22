@@ -21,7 +21,7 @@ def salvar_dados(arquivo, dados):
 def carregar_blacklist(): return carregar_dados('blacklist.json')
 def salvar_blacklist(dados): salvar_dados('blacklist.json', dados)
 
-# --- KEEP ALIVE ---
+# --- KEEP ALIVE PARA RENDER ---
 app = Flask('')
 @app.route('/')
 def home(): return "Bot Furia Online!"
@@ -40,7 +40,7 @@ dados_filas_jogadores = {}
 salas_ativas = {} 
 valores_lista = ["100", "50", "40", "30", "20", "10", "5", "4", "3", "2", "1"]
 
-# --- VIEW DE FINALIZAÇÃO (WIN COM SELEÇÃO) ---
+# --- VIEW DE FINALIZAÇÃO (COM SELEÇÃO) ---
 class ViewFinalizarWin(discord.ui.View):
     def __init__(self, p1, p2, valor_aposta):
         super().__init__(timeout=None)
@@ -62,13 +62,11 @@ class ViewFinalizarWin(discord.ui.View):
     @discord.ui.button(label="Finalizar Aposta 🏁", style=discord.ButtonStyle.danger)
     async def finalizar(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.ganhador or not self.perdedor:
-            return await interaction.response.send_message("❌ Selecione ambos os jogadores nos menus acima!", ephemeral=True)
+            return await interaction.response.send_message("❌ Selecione ambos nos menus!", ephemeral=True)
         if self.ganhador.id == self.perdedor.id:
-            return await interaction.response.send_message("❌ O ganhador não pode ser o mesmo que o perdedor!", ephemeral=True)
+            return await interaction.response.send_message("❌ O ganhador não pode ser o perdedor!", ephemeral=True)
 
         await interaction.response.defer()
-        
-        # Atualizar Stats
         stats = carregar_dados('stats.json')
         for uid in [str(self.ganhador.id), str(self.perdedor.id)]:
             if uid not in stats: stats[uid] = {"vitorias": 0, "derrotas": 0, "streak": 0}
@@ -79,7 +77,6 @@ class ViewFinalizarWin(discord.ui.View):
         stats[str(self.perdedor.id)]["streak"] = 0
         salvar_dados('stats.json', stats)
 
-        # Canal de Resultados
         canal_res = discord.utils.get(interaction.guild.text_channels, name="seus-apostados-aqui📌")
         embed_res = discord.Embed(title="🏆 APOSTA FINALIZADA", color=0x00FF00)
         embed_res.add_field(name="👑 Vencedor", value=self.ganhador.mention, inline=True)
@@ -89,18 +86,17 @@ class ViewFinalizarWin(discord.ui.View):
         
         if canal_res: await canal_res.send(embed=embed_res)
 
-        # Apagar Canal de Voz se existir
         chave_voz = f"{self.p1.id}-{self.p2.id}"
         sala_id = salas_ativas.pop(chave_voz, salas_ativas.pop(f"{self.p2.id}-{self.p1.id}", None))
         if sala_id:
             cv = interaction.guild.get_channel(sala_id)
             if cv: await cv.delete()
 
-        await interaction.followup.send("✅ Registrado! Fechando tópico em 5s...")
+        await interaction.followup.send("✅ Tópico fechando em 5s...")
         await asyncio.sleep(5)
         await interaction.channel.delete()
 
-# --- MODAL E OUTRAS VIEWS ---
+# --- VIEWS DE FILA E CADASTRO ---
 class ModalCadastroPix(discord.ui.Modal, title='Cadastro de Mediador'):
     nome = discord.ui.TextInput(label='Nome Completo')
     banco = discord.ui.TextInput(label='Banco')
@@ -114,45 +110,30 @@ class ViewConfirmacaoAposta(discord.ui.View):
         super().__init__(timeout=None)
         self.p1, self.p2, self.valor = p1, p2, valor
         self.confirmado = {p1.id: False, p2.id: False}
-        self.finalizado = False
-
     @discord.ui.button(label="Confirmar ✅", style=discord.ButtonStyle.success)
     async def confirmar(self, interaction, button):
-        if self.finalizado: return
         if interaction.user.id not in [self.p1.id, self.p2.id]: return
         self.confirmado[interaction.user.id] = True
         await interaction.response.send_message(f"{interaction.user.mention} confirmou!", ephemeral=False)
         if all(self.confirmado.values()):
-            self.finalizado = True
             if fila_mediadores:
                 mid = random.choice(fila_mediadores)
-                dpix = mediadores_dados.get(mid)
-                muser = interaction.guild.get_member(mid)
-                
-                # Criar Canal de Voz
+                dpix, muser = mediadores_dados.get(mid), interaction.guild.get_member(mid)
                 cat = discord.utils.get(interaction.guild.categories, name="SALAS DE APOSTA") or await interaction.guild.create_category("SALAS DE APOSTA")
                 cv = await interaction.guild.create_voice_channel(name=f"🎙️ {self.p1.display_name} vs {self.p2.display_name}", category=cat)
                 salas_ativas[f"{self.p1.id}-{self.p2.id}"] = cv.id
-                
                 embed = discord.Embed(title="✅ PAGAMENTO LIBERADO", color=0x00FF00)
                 if muser: embed.add_field(name="👮 Mediador", value=muser.mention)
                 if dpix: embed.add_field(name="🔑 Pix", value=f"```{dpix['chave']}```")
                 embed.add_field(name="🔊 Voz", value=cv.mention)
                 await interaction.channel.send(content=f"{self.p1.mention} {self.p2.mention}", embed=embed)
 
-    @discord.ui.button(label="Cancelar ❌", style=discord.ButtonStyle.danger)
-    async def cancelar(self, interaction, button):
-        if interaction.user.id in [self.p1.id, self.p2.id]:
-            await interaction.channel.delete()
-
 class ViewCentral(discord.ui.View):
     def __init__(self): super().__init__(timeout=None)
     @discord.ui.button(label="Entrar na Fila", style=discord.ButtonStyle.success)
     async def entrar_med(self, interaction, button):
         if interaction.user.id not in mediadores_dados: return await interaction.response.send_message("❌ Cadastra o Pix!", ephemeral=True)
-        if interaction.user.id not in fila_mediadores: 
-            fila_mediadores.append(interaction.user.id)
-            await interaction.response.send_message("Na fila!", ephemeral=True)
+        if interaction.user.id not in fila_mediadores: fila_mediadores.append(interaction.user.id); await interaction.response.send_message("Entraste!", ephemeral=True)
     @discord.ui.button(label="Cadastrar Pix", style=discord.ButtonStyle.secondary)
     async def cad_pix(self, interaction, button): await interaction.response.send_modal(ModalCadastroPix())
 
@@ -168,7 +149,7 @@ class ViewFilaJogadores(discord.ui.View):
         if chave not in dados_filas_jogadores: dados_filas_jogadores[chave] = []
         if interaction.user not in dados_filas_jogadores[chave]:
             dados_filas_jogadores[chave].append(interaction.user)
-            await interaction.response.send_message("Entrou!", ephemeral=True)
+            await interaction.response.send_message("Entrou na fila!", ephemeral=True)
             if len(dados_filas_jogadores[chave]) >= 2:
                 p1, p2 = dados_filas_jogadores[chave].pop(0), dados_filas_jogadores[chave].pop(0)
                 canal_dest = discord.utils.get(interaction.guild.text_channels, name="seus-apostados-aqui📌")
@@ -177,33 +158,48 @@ class ViewFilaJogadores(discord.ui.View):
                     thread = await msg.create_thread(name=f"R${self.valor} - {p1.display_name} vs {p2.display_name}")
                     await thread.send(content=f"{p1.mention} {p2.mention}", view=ViewConfirmacaoAposta(p1, p2, self.valor))
 
-# --- COMANDOS ---
-@bot.tree.command(name="win", description="Finaliza a aposta com seleção de jogadores")
+# --- COMANDOS SLASH ---
+
+@bot.tree.command(name="p", description="Mostra o perfil de um jogador")
+async def p(interaction: discord.Interaction, membro: discord.Member = None):
+    membro = membro or interaction.user
+    stats = carregar_dados('stats.json')
+    d = stats.get(str(membro.id), {"vitorias": 0, "derrotas": 0, "streak": 0})
+    wr = (d['vitorias'] / (d['vitorias'] + d['derrotas']) * 100) if (d['vitorias'] + d['derrotas']) > 0 else 0
+    embed = discord.Embed(title=f"👤 Perfil: {membro.display_name}", color=0x00AAFF)
+    embed.add_field(name="🏆 Vitórias", value=f"```{d['vitorias']}```", inline=True)
+    embed.add_field(name="💀 Derrotas", value=f"```{d['derrotas']}```", inline=True)
+    embed.add_field(name="🔥 Streak", value=f"```{d['streak']}```", inline=True)
+    embed.add_field(name="📈 Winrate", value=f"```{wr:.1f}%```", inline=True)
+    embed.set_thumbnail(url=membro.display_avatar.url)
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="ranking", description="Top 10 Jogadores")
+async def ranking(interaction: discord.Interaction):
+    stats = carregar_dados('stats.json')
+    if not stats: return await interaction.response.send_message("Sem dados!", ephemeral=True)
+    ranking_ord = sorted(stats.items(), key=lambda item: item[1]['vitorias'], reverse=True)[:10]
+    txt = ""
+    for i, (uid, d) in enumerate(ranking_ord, 1):
+        txt += f"{'🥇' if i==1 else '🥈' if i==2 else '🥉' if i==3 else f'{i}.'} <@{uid}> — **{d['vitorias']}** vitórias\n"
+    await interaction.response.send_message(embed=discord.Embed(title="🏆 RANKING GLOBAL", description=txt, color=0xFFD700))
+
+@bot.tree.command(name="win", description="Finaliza a aposta")
 @app_commands.checks.has_role("ADM")
 async def win(interaction: discord.Interaction, jogador1: discord.Member, jogador2: discord.Member, valor: str):
-    opcoes = [
-        discord.SelectOption(label=jogador1.display_name, value=str(jogador1.id)),
-        discord.SelectOption(label=jogador2.display_name, value=str(jogador2.id))
-    ]
-    emb1 = discord.Embed(title="🏆 GANHADOR", description="Selecione quem venceu", color=0x00FF00)
-    emb2 = discord.Embed(title="💀 PERDEDOR", description="Selecione quem perdeu", color=0xFF0000)
-    emb3 = discord.Embed(title="🏁 FINALIZAR", description="Confirme os dados para fechar o tópico", color=0xFFFFFF)
-    
+    opcoes = [discord.SelectOption(label=jogador1.display_name, value=str(jogador1.id)), discord.SelectOption(label=jogador2.display_name, value=str(jogador2.id))]
     view = ViewFinalizarWin(jogador1, jogador2, valor)
     view.select_ganhador.options = opcoes
     view.select_perdedor.options = opcoes
-    await interaction.response.send_message(embeds=[emb1, emb2, emb3], view=view)
+    await interaction.response.send_message(embeds=[discord.Embed(title="🏆 GANHADOR", color=0x00FF00), discord.Embed(title="💀 PERDEDOR", color=0xFF0000)], view=view)
 
-@bot.command(name="p")
-async def perfil(ctx, membro: discord.Member = None):
-    membro = membro or ctx.author
-    stats = carregar_dados('stats.json')
-    d = stats.get(str(membro.id), {"vitorias": 0, "derrotas": 0, "streak": 0})
-    embed = discord.Embed(title=f"📊 Perfil: {membro.display_name}", color=0x00AAFF)
-    embed.add_field(name="🏆 Vitórias", value=str(d['vitorias']))
-    embed.add_field(name="💀 Derrotas", value=str(d['derrotas']))
-    embed.add_field(name="🔥 Streak", value=str(d['streak']))
-    await ctx.send(embed=embed)
+@bot.tree.command(name="blacklist", description="Bane um jogador")
+@app_commands.checks.has_permissions(administrator=True)
+async def blacklist(interaction: discord.Interaction, usuario: discord.Member, motivo: str):
+    bl = carregar_blacklist()
+    expira = (datetime.datetime.now() + datetime.timedelta(days=14)).strftime("%Y-%m-%d %H:%M")
+    bl[str(usuario.id)] = {"nome": usuario.name, "motivo": motivo, "expira": expira}
+    salvar_blacklist(bl); await interaction.response.send_message(f"🚫 {usuario.mention} banido!")
 
 @bot.tree.command(name="central")
 async def central(interaction: discord.Interaction):
