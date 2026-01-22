@@ -26,7 +26,19 @@ def keep_alive(): Thread(target=run).start()
 
 # --- CONFIG BOT ---
 intents = discord.Intents.all()
-bot = commands.Bot(command_prefix='!', intents=intents)
+
+class FuriaBot(commands.Bot):
+    def __init__(self):
+        super().__init__(command_prefix='!', intents=intents)
+
+    async def setup_hook(self):
+        # Registra as views para que os botões não morram ao reiniciar o bot
+        self.add_view(ViewCentral())
+        # Para ViewFilaFuria ser persistente em mensagens fixas, 
+        # precisaríamos de IDs fixos, mas o /atualizar_filas gera novos.
+        print("✅ Views persistentes da ORG FÚRIA carregadas!")
+
+bot = FuriaBot()
 
 fila_mediadores = [] 
 dados_filas_memoria = {} 
@@ -48,15 +60,14 @@ class ViewWinFuria(discord.ui.View):
     def __init__(self, p1, p2, valor):
         super().__init__(timeout=None)
         self.p1, self.p2, self.valor = p1, p2, valor
-        self.ganhador = None
-        self.perdedor = None
+        self.ganhador, self.perdedor = None, None
 
-    @discord.ui.button(label="DEFINIR GANHADOR", style=discord.ButtonStyle.success, emoji="🏆")
+    @discord.ui.button(label="DEFINIR GANHADOR", style=discord.ButtonStyle.success, emoji="🏆", custom_id="win_ganhador")
     async def set_ganhador(self, interaction: discord.Interaction, button: discord.ui.Button):
         view = discord.ui.View()
         select = discord.ui.Select(placeholder="Quem venceu?")
-        select.add_option(label=self.p1.display_name, value=str(self.p1.id))
-        select.add_option(label=self.p2.display_name, value=str(self.p2.id))
+        for p in [self.p1, self.p2]:
+            select.add_option(label=p.display_name, value=str(p.id))
         async def callback(i):
             self.ganhador = interaction.guild.get_member(int(select.values[0]))
             await i.response.send_message(f"✅ Ganhador: {self.ganhador.mention}", ephemeral=True)
@@ -64,12 +75,12 @@ class ViewWinFuria(discord.ui.View):
         view.add_item(select)
         await interaction.response.send_message("Selecione o vencedor:", view=view, ephemeral=True)
 
-    @discord.ui.button(label="DEFINIR PERDEDOR", style=discord.ButtonStyle.danger, emoji="💀")
+    @discord.ui.button(label="DEFINIR PERDEDOR", style=discord.ButtonStyle.danger, emoji="💀", custom_id="win_perdedor")
     async def set_perdedor(self, interaction: discord.Interaction, button: discord.ui.Button):
         view = discord.ui.View()
         select = discord.ui.Select(placeholder="Quem perdeu?")
-        select.add_option(label=self.p1.display_name, value=str(self.p1.id))
-        select.add_option(label=self.p2.display_name, value=str(self.p2.id))
+        for p in [self.p1, self.p2]:
+            select.add_option(label=p.display_name, value=str(p.id))
         async def callback(i):
             self.perdedor = interaction.guild.get_member(int(select.values[0]))
             await i.response.send_message(f"✅ Perdedor: {self.perdedor.mention}", ephemeral=True)
@@ -77,7 +88,7 @@ class ViewWinFuria(discord.ui.View):
         view.add_item(select)
         await interaction.response.send_message("Selecione o perdedor:", view=view, ephemeral=True)
 
-    @discord.ui.button(label="ENCERRAR APOSTA", style=discord.ButtonStyle.secondary, emoji="🔒")
+    @discord.ui.button(label="ENCERRAR APOSTA", style=discord.ButtonStyle.secondary, emoji="🔒", custom_id="win_encerrar")
     async def encerrar(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.ganhador or not self.perdedor:
             return await interaction.response.send_message("❌ Defina o resultado primeiro!", ephemeral=True)
@@ -97,8 +108,8 @@ class ViewWinFuria(discord.ui.View):
 class ViewCentral(discord.ui.View):
     def __init__(self): super().__init__(timeout=None)
 
-    @discord.ui.button(label="Entrar na Fila", style=discord.ButtonStyle.success, emoji="✅")
-    async def entrar(self, interaction, button):
+    @discord.ui.button(label="Entrar na Fila", style=discord.ButtonStyle.success, emoji="✅", custom_id="med_entrar")
+    async def entrar(self, interaction: discord.Interaction, button: discord.ui.Button):
         pix_db = carregar_dados('pix.json')
         if str(interaction.user.id) not in pix_db:
             return await interaction.response.send_message("❌ Cadastre seu Pix antes de entrar na fila!", ephemeral=True)
@@ -110,13 +121,15 @@ class ViewCentral(discord.ui.View):
             embed.set_field_at(1, name="Mediadores Online:", value=txt, inline=False)
             await interaction.message.edit(embed=embed)
             await interaction.response.send_message("✅ Você entrou na fila de mediadores!", ephemeral=True)
+        else:
+            await interaction.response.send_message("⚠️ Já está na fila!", ephemeral=True)
 
-    @discord.ui.button(label="Cadastrar Pix", style=discord.ButtonStyle.secondary, emoji="💠")
+    @discord.ui.button(label="Cadastrar Pix", style=discord.ButtonStyle.secondary, emoji="💠", custom_id="med_pix")
     async def cadastrar_pix(self, interaction, button):
         await interaction.response.send_modal(ModalPixFuria())
 
-    @discord.ui.button(label="Sair da Fila", style=discord.ButtonStyle.danger, emoji="❌")
-    async def sair(self, interaction, button):
+    @discord.ui.button(label="Sair da Fila", style=discord.ButtonStyle.danger, emoji="❌", custom_id="med_sair")
+    async def sair(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id in fila_mediadores:
             fila_mediadores.remove(interaction.user.id)
             embed = interaction.message.embeds[0]
@@ -130,6 +143,12 @@ class ViewFilaFuria(discord.ui.View):
     def __init__(self, valor, modalidade):
         super().__init__(timeout=None)
         self.valor, self.modalidade = valor, modalidade
+
+    @discord.ui.button(label="Gelo Normal", style=discord.ButtonStyle.secondary, emoji="🧊")
+    async def normal(self, interaction, button): await self.gerenciar_fila(interaction, "Gelo Normal")
+    
+    @discord.ui.button(label="Gelo Infinito", style=discord.ButtonStyle.secondary, emoji="♾️")
+    async def infinito(self, interaction, button): await self.gerenciar_fila(interaction, "Gelo Infinito")
 
     async def gerenciar_fila(self, interaction, tipo_gelo):
         chave = (interaction.channel.id, self.valor, tipo_gelo)
@@ -167,6 +186,12 @@ class ViewFilaFuria(discord.ui.View):
                 await thread.send(content=f"{p1.mention} {p2.mention}\n\n👮 **Mediador:** {med_obj.mention}\n{txt_pix}\n\nUse /win para finalizar.")
 
 # --- COMANDOS ---
+@bot.command(name="sync")
+@commands.has_permissions(administrator=True)
+async def sync(ctx):
+    fmt = await bot.tree.sync()
+    await ctx.send(f"✅ Sincronizado {len(fmt)} comandos!")
+
 @bot.tree.command(name="win")
 async def win(interaction: discord.Interaction, jogador1: discord.Member, jogador2: discord.Member, valor: str):
     emb1 = discord.Embed(title="🏆 GANHADOR", description=f"Marque o vencedor: {jogador1.mention} ou {jogador2.mention}", color=0x2ECC71)
@@ -179,6 +204,7 @@ async def win(interaction: discord.Interaction, jogador1: discord.Member, jogado
 async def central(interaction: discord.Interaction):
     embed = discord.Embed(title="Mediadores disponíveis", color=0xFFA500)
     embed.description = "Só interaja com o botão \"Entrar na Fila\", caso esteja disponível para mediar os apostados."
+    embed.add_field(name="Instrução:", value="Use o botão \"Entrar na Fila\" somente ao estar ON!", inline=False)
     embed.add_field(name="Mediadores Online:", value="Nenhum mediador online.", inline=False)
     embed.set_footer(text="ORG FÚRIA | SALAS 10 C")
     await interaction.response.send_message(embed=embed, view=ViewCentral())
@@ -201,8 +227,7 @@ async def atualizar_filas(interaction: discord.Interaction):
 
 @bot.event
 async def on_ready():
-    await bot.tree.sync()
-    print(f"🚀 ORG FÚRIA COMPLETA ONLINE!")
+    print(f"🚀 ORG FÚRIA ONLINE: {bot.user.name}")
 
 keep_alive()
 bot.run(os.environ['TOKEN'])
